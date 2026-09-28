@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Haute
+.haute/
+impact_report.md
+.haute_cache/
+mlruns/
+.venv/
