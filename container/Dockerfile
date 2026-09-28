@@ -28,10 +28,14 @@ USER haute
 COPY --chown=haute:haute pyproject.toml uv.lock .python-version ./
 RUN uv sync --frozen --no-dev --no-install-project
 
-# The project the visitor opens. The repo is left unborn: Haute seeds its first
-# commit itself, and puts data/ back in .gitignore as it does for any project.
+# The project the visitor opens, with its first commit and a working branch
+# already made by Haute's own code (it keeps data/ out of git, as for any
+# project), so Haute opens on the canvas rather than asking for a branch.
 COPY --chown=haute:haute . .
-RUN rm -rf container && git init -q
+RUN rm -rf container \
+ && git init -q \
+ && .venv/bin/python -c "from pathlib import Path; from haute._git_setup import set_working_branch; p = Path.cwd(); set_working_branch('playground', p, create=True, cwd=p)" \
+ && git branch --list && cat .haute/state.json
 
 EXPOSE 8080
 ENTRYPOINT ["playground"]
