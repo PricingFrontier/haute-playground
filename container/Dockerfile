@@ -4,7 +4,7 @@
 #
 #   docker build -f container/Dockerfile -t haute-playground .
 #   docker run -p 8080:8080 -e PUBLIC_ORIGIN=http://localhost:8080 haute-playground
-FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git libgomp1 \

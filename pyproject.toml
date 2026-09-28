@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "ralph", email = "ralph@pricing-frontier.co.uk" }
 ]
-requires-python = ">=3.14"
+requires-python = ">=3.13,<3.14"
 dependencies = [
     "haute>=0.5.0",
 ]
