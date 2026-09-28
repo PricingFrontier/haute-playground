@@ -1,0 +1,86 @@
+name: Session image
+
+# Builds the container one visitor's playground session runs in, checks it
+# through its proxy, screenshots it, and only then pushes it to GHCR.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: image
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/pricingfrontier/haute-playground
+
+jobs:
+  image:
+    name: Build, check and push
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # The data is in Git LFS; cache it so each build doesn't download 375 MB again
+      - name: List LFS objects
+        run: git lfs ls-files --long | cut -d ' ' -f1 | sort > .lfs-assets-id
+      - uses: actions/cache@v4
+        with:
+          path: .git/lfs
+          key: lfs-${{ hashFiles('.lfs-assets-id') }}
+      - run: git lfs pull
+
+      - uses: docker/setup-buildx-action@v3
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: container/Dockerfile
+          load: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start a session
+        run: |
+          docker run -d --name session -p 8080:8080 -e PUBLIC_ORIGIN=http://localhost:8080 "$IMAGE:latest"
+          for _ in $(seq 60); do
+            curl -sf -o /dev/null http://localhost:8080/ && exit 0
+            sleep 2
+          done
+          echo "The session didn't come up in two minutes"
+          exit 1
+
+      - name: Check the proxy
+        run: bash container/smoke.sh http://localhost:8080
+
+      - name: Screenshot
+        run: >-
+          npx -y playwright@latest screenshot --channel chrome
+          --viewport-size "1440, 900" --wait-for-timeout 10000
+          http://localhost:8080/ session.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: session
+          path: session.png
+          if-no-files-found: ignore
+
+      - name: Session logs
+        if: always()
+        run: docker logs session
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push
+        run: docker push --all-tags "$IMAGE"

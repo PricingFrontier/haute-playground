@@ -1,0 +1,19 @@
+{
+	admin off
+	auto_https off
+	persist_config off
+}
+
+# Haute only accepts its own page on its own loopback address. Requests from the
+# session's public origin are passed to it as that; any other origin goes through
+# unchanged, so Haute still refuses it.
+:8080 {
+	@own header Origin {$PUBLIC_ORIGIN}
+	request_header @own Origin http://127.0.0.1:8000
+
+	reverse_proxy 127.0.0.1:8000 {
+		header_up Host 127.0.0.1:8000
+		header_up -Forwarded
+		header_up -X-Forwarded-*
+	}
+}
