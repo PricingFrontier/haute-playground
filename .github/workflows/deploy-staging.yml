@@ -1,0 +1,108 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "rating/**"
+      - "haute.toml"
+      - "data/**"
+      - "models/**"
+      - "tests/quotes/**"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          python-version: "3.11"
+      - run: uv sync --frozen
+      - name: Lint
+        run: uv run ruff check .
+      - name: Type check
+        run: uv run mypy .
+      - name: Test
+        run: uv run pytest -v
+      - name: Pipeline lint
+        run: uv run haute lint
+      - name: Dry-run deploy
+        run: uv run haute deploy --dry-run
+
+  deploy-staging:
+    name: Deploy → Staging
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          python-version: "3.11"
+      - run: uv sync --frozen
+      - name: Deploy to staging
+        env:
+          DATABRICKS_MLFLOW_HOST: ${{ secrets.DATABRICKS_MLFLOW_HOST }}
+          DATABRICKS_MLFLOW_TOKEN: ${{ secrets.DATABRICKS_MLFLOW_TOKEN }}
+          DATABRICKS_RATING_HOST: ${{ secrets.DATABRICKS_RATING_HOST }}
+          DATABRICKS_RATING_TOKEN: ${{ secrets.DATABRICKS_RATING_TOKEN }}
+        run: uv run haute deploy --endpoint-suffix "-staging"
+
+  smoke-test:
+    name: Smoke Test Staging
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          python-version: "3.11"
+      - run: uv sync --frozen
+      - name: Score test quotes against staging endpoint
+        env:
+          DATABRICKS_MLFLOW_HOST: ${{ secrets.DATABRICKS_MLFLOW_HOST }}
+          DATABRICKS_MLFLOW_TOKEN: ${{ secrets.DATABRICKS_MLFLOW_TOKEN }}
+          DATABRICKS_RATING_HOST: ${{ secrets.DATABRICKS_RATING_HOST }}
+          DATABRICKS_RATING_TOKEN: ${{ secrets.DATABRICKS_RATING_TOKEN }}
+        run: uv run haute smoke --endpoint-suffix "-staging"
+
+  impact-analysis:
+    name: Impact Analysis
+    needs: smoke-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          python-version: "3.11"
+      - run: uv sync --frozen
+      - name: Compare staging vs production predictions
+        env:
+          DATABRICKS_MLFLOW_HOST: ${{ secrets.DATABRICKS_MLFLOW_HOST }}
+          DATABRICKS_MLFLOW_TOKEN: ${{ secrets.DATABRICKS_MLFLOW_TOKEN }}
+          DATABRICKS_RATING_HOST: ${{ secrets.DATABRICKS_RATING_HOST }}
+          DATABRICKS_RATING_TOKEN: ${{ secrets.DATABRICKS_RATING_TOKEN }}
+        run: uv run haute impact --endpoint-suffix "-staging"
+      - name: Upload impact report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: impact-report
+          path: impact_report.md
+      - name: Record deployed SHA
+        run: >-
+          echo "Staged commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"

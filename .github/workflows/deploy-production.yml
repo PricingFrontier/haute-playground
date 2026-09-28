@@ -1,0 +1,52 @@
+name: Deploy → Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: >
+          Git SHA that was staged & impact-analysed.
+          Leave blank to deploy current HEAD of main (less safe).
+        required: false
+        type: string
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  deploy-production:
+    name: Deploy → Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify commit matches staged SHA
+        if: inputs.sha != ''
+        run: |
+          if [ "$GITHUB_SHA" != "${{ inputs.sha }}" ]; then
+            echo "::error::HEAD ($GITHUB_SHA) does not match" \
+              "staged SHA (${{ inputs.sha }}). Merge may have occurred since staging."
+            exit 1
+          fi
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          python-version: "3.11"
+      - run: uv sync --frozen
+      - name: Deploy to production
+        env:
+          DATABRICKS_MLFLOW_HOST: ${{ secrets.DATABRICKS_MLFLOW_HOST }}
+          DATABRICKS_MLFLOW_TOKEN: ${{ secrets.DATABRICKS_MLFLOW_TOKEN }}
+          DATABRICKS_RATING_HOST: ${{ secrets.DATABRICKS_RATING_HOST }}
+          DATABRICKS_RATING_TOKEN: ${{ secrets.DATABRICKS_RATING_TOKEN }}
+        run: uv run haute deploy
+      - name: Tag release
+        run: |
+          set -euo pipefail
+          VERSION=$(uv run haute status --version-only 2>/dev/null || echo "unknown")
+          git tag "deploy/v$VERSION"
+          git push origin "deploy/v$VERSION"

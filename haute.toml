@@ -1,0 +1,30 @@
+[project]
+name = "haute-playground"
+pipeline = "rating/main.py"
+
+[deploy]
+target = "databricks"
+model_name = "haute-playground"
+endpoint_name = "haute-playground"
+
+[deploy.databricks]
+experiment_name = "/Shared/haute/haute-playground"
+catalog = "main"
+schema = "pricing"
+serving_workload_size = "Small"
+serving_scale_to_zero = true
+
+[test_quotes]
+dir = "tests/quotes"
+
+[safety]
+impact_dataset = "data/portfolio_sample.parquet"
+
+[safety.approval]
+min_approvers = 2
+
+[ci]
+provider = "github"
+
+[ci.staging]
+endpoint_suffix = "-staging"
