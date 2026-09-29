@@ -22,7 +22,9 @@ primary_region = "lhr"
   MAX_SESSIONS = "20"
   MAX_SESSIONS_PER_IP = "3"
   PLAYGROUND_PAGE = "https://pricing-frontier.co.uk/playground.html"
-  ALLOWED_ORIGINS = "https://pricing-frontier.co.uk,https://www.pricing-frontier.co.uk"
+  # Pages that may start sessions. The last two are the site previewed locally
+  # (plain on 8765, and over HTTPS as dev.pricing-frontier.co.uk on 8443); remove them at launch.
+  ALLOWED_ORIGINS = "https://pricing-frontier.co.uk,https://www.pricing-frontier.co.uk,http://localhost:8765,https://dev.pricing-frontier.co.uk:8443"
 
 [http_service]
   internal_port = 8080
