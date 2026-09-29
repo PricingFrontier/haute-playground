@@ -8,9 +8,12 @@
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git iptables libgomp1 \
+ && apt-get install -y --no-install-recommends git iptables libcap2-bin libgomp1 \
  && rm -rf /var/lib/apt/lists/*
+# Caddy ships with the capability to bind ports below 1024. It only uses 8080, and
+# the session runs with no capabilities, which Linux enforces by refusing to run it.
 COPY --from=caddy:2 /usr/bin/caddy /usr/bin/caddy
+RUN setcap -r /usr/bin/caddy
 COPY container/Caddyfile /etc/caddy/Caddyfile
 COPY --chmod=755 container/entrypoint.sh /usr/local/bin/playground
 COPY --chmod=755 container/session.sh /usr/local/bin/playground-session
