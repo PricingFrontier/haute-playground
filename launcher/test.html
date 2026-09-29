@@ -48,8 +48,14 @@
     $('end').hidden = false
   }
 
+  // Closing the page ends its session at once
+  addEventListener('pagehide', () => {
+    if (session) navigator.sendBeacon('/sessions/' + session.sid + '/end')
+  })
+
   $('end').onclick = async () => {
     await fetch('/sessions/' + session.sid, { method: 'DELETE' })
+    session = null
     $('frame').removeAttribute('src')
     $('end').hidden = true
     $('start').disabled = false

@@ -27,6 +27,7 @@ const settings = {
   cpus: whole('SESSION_CPUS'),
   memoryMb: whole('SESSION_MEMORY_MB'),
   sessionMs: whole('SESSION_MINUTES') * 60_000,
+  idleMs: whole('SESSION_IDLE_SECONDS') * 1_000,
   poolRunning: whole('POOL_RUNNING'),
   poolSuspended: whole('POOL_SUSPENDED'),
   maxSessions: whole('MAX_SESSIONS'),
@@ -60,6 +61,7 @@ function sidOf(req) {
 const upstream = new http.Agent({ keepAlive: true, maxSockets: 256 })
 
 function proxy(req, res, machine) {
+  pool.seen(machine)
   const up = http.request(
     { host: machine.ip, port: 8080, method: req.method, path: req.url, headers: endToEnd(req.headers), agent: upstream },
     upRes => {
@@ -88,6 +90,8 @@ async function launcherRequest(req, res) {
   }
   const json = (status, value) => send(status, JSON.stringify(value), { 'content-type': 'application/json' })
   const ending = url.pathname.match(/^\/sessions\/([0-9a-f]+)$/)
+  // A page that is closing can only send a beacon, which is always a POST
+  const beacon = url.pathname.match(/^\/sessions\/([0-9a-f]+)\/end$/)
   try {
     if (req.method === 'OPTIONS') return send(204, '', { 'access-control-allow-methods': 'POST, DELETE', 'access-control-max-age': '600' })
     if (req.method === 'GET' && url.pathname === '/health') return send(200, 'ok')
@@ -105,8 +109,8 @@ async function launcherRequest(req, res) {
         throw err
       }
     }
-    if (req.method === 'DELETE' && ending) {
-      await pool.end(ending[1])
+    if ((req.method === 'DELETE' && ending) || (req.method === 'POST' && beacon)) {
+      await pool.end((ending ?? beacon)[1])
       return send(204)
     }
     return send(404, 'not found')
@@ -133,11 +137,17 @@ server.on('upgrade', (req, socket, head) => {
   const machine = sid && pool.route(sid)
   if (!machine) return socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n')
   const up = net.connect({ host: machine.ip, port: 8080 })
+  // An open live-sync connection means a page still shows the session
+  let counted = false
   const close = () => {
     up.destroy()
     socket.destroy()
+    if (counted) pool.disconnected(machine)
+    counted = false
   }
   up.on('connect', () => {
+    pool.connected(machine)
+    counted = true
     const lines = [`${req.method} ${req.url} HTTP/${req.httpVersion}`]
     for (let i = 0; i < req.rawHeaders.length; i += 2) lines.push(`${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}`)
     up.write(`${lines.join('\r\n')}\r\n\r\n`)

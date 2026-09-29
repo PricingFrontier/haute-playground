@@ -1,5 +1,7 @@
 // The playground's sessions: machines in the sessions app that wait in a pool,
-// are claimed one per visitor, and are destroyed when the visit ends. Fly keeps
+// are claimed one per visitor, and are destroyed when the visit ends: when the
+// visitor ends it, when its time is up, or when no page has held its live-sync
+// connection open for a while (the tab was closed and said nothing). Fly keeps
 // the record (each machine's state, and its sid and claim in metadata), so a
 // restarted launcher rebuilds everything here from the machine list.
 import { randomBytes } from 'node:crypto'
@@ -49,7 +51,8 @@ export function createPool({ api, settings, log }) {
   const maxMachines = settings.poolRunning + settings.poolSuspended + settings.maxSessions
 
   function add(fields) {
-    const m = { since: Date.now(), expiresAt: null, clientIp: null, ...fields }
+    // sockets: the session's open live-sync connections; lastSeen: its last sign of a visitor
+    const m = { since: Date.now(), expiresAt: null, clientIp: null, sockets: 0, lastSeen: Date.now(), ...fields }
     machines.set(m.id, m)
     return m
   }
@@ -169,18 +172,40 @@ export function createPool({ api, settings, log }) {
         continue
       }
       m.ip = machine.private_ip
-      const broken =
-        (m.phase === 'claimed' && machine.state !== 'started') ||
-        (m.phase === 'ready' && machine.state !== 'started') ||
-        (m.phase === 'suspended' && !['suspended', 'starting', 'started'].includes(machine.state))
-      if (broken) await destroy(m, `${m.phase} but ${machine.state}`)
+      if (broken(m, machine.state)) {
+        const fresh = await lookup(id)
+        if (!fresh || broken(m, fresh.state)) await destroy(m, `${m.phase} but ${fresh?.state ?? 'gone'}`)
+      }
     }
-    for (const m of machines.values()) {
-      const settled = Date.now() - m.since > SETTLE_MS
-      if (!listed.has(m.id) && settled && m.phase !== 'ending') {
+    for (const m of [...machines.values()]) {
+      if (listed.has(m.id) || m.phase === 'ending' || Date.now() - m.since <= SETTLE_MS) continue
+      const fresh = await lookup(m.id)
+      if (!fresh || fresh.state === 'destroyed') {
         machines.delete(m.id)
         log('machine_gone', { id: m.id, phase: m.phase })
+      } else {
+        log('list_missed', { id: m.id, state: fresh.state })
       }
+    }
+  }
+
+  // A machine whose state doesn't fit what it is for
+  function broken(m, state) {
+    return (
+      (m.phase === 'claimed' && state !== 'started') ||
+      (m.phase === 'ready' && state !== 'started') ||
+      (m.phase === 'suspended' && !['suspended', 'starting', 'started'].includes(state))
+    )
+  }
+
+  // Fly's list can lag or leave a machine out, so only a direct lookup counts as proof
+  // that a machine has gone or broken; null when Fly no longer knows it
+  async function lookup(id) {
+    try {
+      return await api.get(id)
+    } catch (err) {
+      if (/: 404 /.test(err.message)) return null
+      throw err
     }
   }
 
@@ -190,12 +215,34 @@ export function createPool({ api, settings, log }) {
     try {
       await sync()
       for (const m of inUse()) {
-        if (m.phase === 'claimed' && m.expiresAt <= Date.now()) await destroy(m, 'expired')
+        if (m.phase !== 'claimed') continue
+        if (m.expiresAt <= Date.now()) await destroy(m, 'expired')
+        else if (m.sockets === 0 && Date.now() - m.lastSeen > settings.idleMs) await destroy(m, 'visitor left')
       }
       const wanted = settings.poolRunning + settings.poolSuspended
       for (let i = 0; i < CREATES_PER_TICK && poolSize() < wanted && Date.now() >= createBlockedUntil; i++) {
         if (!(await createOne())) break
         await sleep(CREATE_SPACING_MS)
+      }
+      // Too few running and too many paused (a running one was claimed and the refill
+      // paused, or after a restart): wake a paused one to run
+      if (count('ready') + count('warming') < settings.poolRunning && count('suspended') > settings.poolSuspended) {
+        const m = [...machines.values()].find(x => x.phase === 'suspended')
+        m.phase = 'warming'
+        try {
+          await api.start(m.id)
+          warm(m)
+          log('machine_woken', { id: m.id })
+        } catch (err) {
+          log('wake_failed', { id: m.id, error: err.message })
+          await destroy(m, 'wake failed')
+        }
+      }
+      // More waiting than wanted (the pool was made smaller): let the extras go
+      for (const [phase, keep] of [['suspended', settings.poolSuspended], ['ready', settings.poolRunning]]) {
+        while (poolSize() > wanted && count(phase) > keep) {
+          await destroy([...machines.values()].find(m => m.phase === phase), 'pool is smaller')
+        }
       }
     } catch (err) {
       log('tick_failed', { error: err.message })
@@ -244,6 +291,7 @@ export function createPool({ api, settings, log }) {
           continue
         }
         m.phase = 'claimed'
+        m.lastSeen = Date.now()
         log('session_claimed', { id: m.id, resumed: wasSuspended, ms: Date.now() - now })
         return { sid: m.sid, url: `https://${m.sid}.${settings.domain}/`, expiresAt: m.expiresAt, ms: m.expiresAt - Date.now() }
       }
@@ -284,5 +332,17 @@ export function createPool({ api, settings, log }) {
     end,
     route,
     status,
+    // The proxy reports what it sees of a session's visitor
+    seen: m => {
+      m.lastSeen = Date.now()
+    },
+    connected: m => {
+      m.sockets++
+      m.lastSeen = Date.now()
+    },
+    disconnected: m => {
+      m.sockets = Math.max(0, m.sockets - 1)
+      m.lastSeen = Date.now()
+    },
   }
 }

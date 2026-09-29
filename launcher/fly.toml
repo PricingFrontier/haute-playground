@@ -15,6 +15,11 @@ primary_region = "lhr"
   SESSION_CPUS = "4"
   SESSION_MEMORY_MB = "2048"
   SESSION_MINUTES = "30"
+  # A session with no page holding its live sync open for this long has been left
+  # (closing a page normally ends it at once). Haute reconnects within this after a
+  # launcher redeploy (tested: 1 s after the launcher is back), so visitors keep
+  # their sessions through one.
+  SESSION_IDLE_SECONDS = "60"
   # Sessions waiting for visitors: running ones hand over at once, paused ones in about 2 s
   POOL_RUNNING = "1"
   POOL_SUSPENDED = "3"
