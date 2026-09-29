@@ -650,7 +650,7 @@ wheels = [
 
 [[package]]
 name = "haute"
-version = "0.5.0"
+version = "0.5.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anthropic" },
@@ -687,9 +687,9 @@ dependencies = [
     { name = "xgboost-cpu", marker = "sys_platform != 'darwin'" },
     { name = "xxhash" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/23/85/defe303e6c5f006288f8b4316004ee43215816b873740d9c965845df09fd/haute-0.5.0.tar.gz", hash = "sha256:a0ebf958d40fdd047cd53f85cbae8f7db2704a7da56d8ae47a0ff407763fe7c2", size = 4899133, upload-time = "2026-09-28T16:42:56.503Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7a/59/e2ef3eb1a0019aef04d99c129105d52c516eb911f88b2c8fcefe0bd128e9/haute-0.5.2.tar.gz", hash = "sha256:17bc671fa2fe279f1859afd2f57723b0a271e489c80c6a66ef8698dcc2b9c3cd", size = 4907744, upload-time = "2026-09-29T13:03:24.021Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c4/1e/1f8f86cbfd36cca0aee3fa0e95cd974c7f5a12c5ca5789cc4b78105e7dd8/haute-0.5.0-py3-none-any.whl", hash = "sha256:0307a3ca8e6585d899b7ba4db6bf5bb4a93e044758ac582ac1c73f30abe956af", size = 3763736, upload-time = "2026-09-28T16:42:54.361Z" },
+    { url = "https://files.pythonhosted.org/packages/97/05/5f429cf7de9d90a0750409f779fbde5a0619069060affc87675c39dc98e6/haute-0.5.2-py3-none-any.whl", hash = "sha256:f2b708959eddb41a5331f784a21011f4651d8930da0883f6225159e915701552", size = 3766402, upload-time = "2026-09-29T13:03:22.186Z" },
 ]
 
 [[package]]
@@ -708,7 +708,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "haute", specifier = ">=0.5.0" }]
+requires-dist = [{ name = "haute", specifier = ">=0.5.2" }]
 
 [package.metadata.requires-dev]
 dev = [
