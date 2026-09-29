@@ -1,17 +1,19 @@
 # One visitor's playground session: this project, served by plain `haute serve`
 # on 127.0.0.1:8000, with Caddy on :8080 in front so the visitor's browser
-# reaches it as if it were local. Build from the repo root:
+# reaches it as if it were local. It starts as root to block every outgoing
+# connection, then runs as the haute user. Build from the repo root:
 #
 #   docker build -f container/Dockerfile -t haute-playground .
-#   docker run -p 8080:8080 -e PUBLIC_ORIGIN=http://localhost:8080 haute-playground
+#   docker run --cap-add NET_ADMIN -p 8080:8080 -e PUBLIC_ORIGIN=http://localhost:8080 haute-playground
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git libgomp1 \
+ && apt-get install -y --no-install-recommends git iptables libgomp1 \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=caddy:2 /usr/bin/caddy /usr/bin/caddy
 COPY container/Caddyfile /etc/caddy/Caddyfile
 COPY --chmod=755 container/entrypoint.sh /usr/local/bin/playground
+COPY --chmod=755 container/session.sh /usr/local/bin/playground-session
 
 # Haute's Git panel commits as this identity, so a visitor is never asked who they are
 RUN useradd --create-home --uid 1000 haute \
@@ -37,5 +39,7 @@ RUN rm -rf container \
  && .venv/bin/python -c "from pathlib import Path; from haute._git_setup import set_working_branch; p = Path.cwd(); set_working_branch('playground', p, create=True, cwd=p)" \
  && git branch --list && cat .haute/state.json
 
+# The entrypoint needs root for the firewall; it drops to haute before Haute starts
+USER root
 EXPOSE 8080
 ENTRYPOINT ["playground"]

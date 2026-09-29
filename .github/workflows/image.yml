@@ -50,7 +50,8 @@ jobs:
 
       - name: Start a session
         run: |
-          docker run -d --name session -p 8080:8080 -e PUBLIC_ORIGIN=http://localhost:8080 "$IMAGE:latest"
+          docker run -d --name session --cap-add NET_ADMIN -p 8080:8080 \
+            -e PUBLIC_ORIGIN=http://localhost:8080 "$IMAGE:latest"
           for _ in $(seq 60); do
             curl -sf -o /dev/null http://localhost:8080/ && exit 0
             sleep 2
@@ -60,6 +61,9 @@ jobs:
 
       - name: Check the proxy
         run: bash container/smoke.sh http://localhost:8080
+
+      - name: Check from inside the session
+        run: docker exec -i session bash -s < container/inside.sh
 
       - name: Screenshot
         run: >-
