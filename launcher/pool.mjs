@@ -1,6 +1,6 @@
 // The playground's sessions: machines in the sessions app that wait in a pool,
 // are claimed one per visitor, and are destroyed when the visit ends. Fly keeps
-// the record (each machine's state, and its sid and expiry in metadata), so a
+// the record (each machine's state, and its sid and claim in metadata), so a
 // restarted launcher rebuilds everything here from the machine list.
 import { randomBytes } from 'node:crypto'
 
@@ -14,7 +14,22 @@ const CLAIM_WAIT_MS = 60_000 // how long a visitor waits for a machine that is s
 const CREATE_BACKOFF_MS = 30_000
 const SETTLE_MS = 30_000 // a machine this new may not be in the list yet
 
+const CLAIM_ATTEMPTS = 2 // a failing claim must not work its way through the whole pool
+
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+
+// A claim is one metadata value, since Fly rate-limits metadata writes per machine
+const writeClaim = m => JSON.stringify({ expiresAt: new Date(m.expiresAt).toISOString(), clientIp: m.clientIp })
+function readClaim(value) {
+  if (!value) return null
+  try {
+    const { expiresAt, clientIp } = JSON.parse(value)
+    const at = Date.parse(expiresAt)
+    return Number.isFinite(at) ? { expiresAt: at, clientIp: clientIp ?? null } : null
+  } catch {
+    return null
+  }
+}
 
 // Phases: warming (booting, not serving yet), ready (serving, waiting in the pool),
 // suspending, suspended (paused in the pool), claiming, claimed, ending.
@@ -138,13 +153,14 @@ export function createPool({ api, settings, log }) {
       const m = machines.get(id)
       if (!m) {
         const fields = { id, sid: meta.sid, ip: machine.private_ip }
-        if (meta.expires_at && machine.state === 'started') {
-          add({ ...fields, phase: 'claimed', expiresAt: Date.parse(meta.expires_at), clientIp: meta.client_ip ?? null })
+        const claimed = readClaim(meta.claim)
+        if (claimed && machine.state === 'started') {
+          add({ ...fields, phase: 'claimed', ...claimed })
           log('adopted', { id, phase: 'claimed' })
-        } else if (!meta.expires_at && machine.state === 'suspended') {
+        } else if (!meta.claim && machine.state === 'suspended') {
           add({ ...fields, phase: 'suspended' })
           log('adopted', { id, phase: 'suspended' })
-        } else if (!meta.expires_at && ['created', 'starting', 'started'].includes(machine.state)) {
+        } else if (!meta.claim && ['created', 'starting', 'started'].includes(machine.state)) {
           warm(add({ ...fields, phase: 'warming' }))
           log('adopted', { id, phase: 'warming' })
         } else {
@@ -201,7 +217,7 @@ export function createPool({ api, settings, log }) {
       throw Object.assign(new Error('too many sessions from this address'), { status: 429, code: 'too-many' })
     }
     const deadline = Date.now() + CLAIM_WAIT_MS
-    for (;;) {
+    for (let attempts = 0; ; ) {
       if (inUse().length >= settings.maxSessions) {
         throw Object.assign(new Error('every session is in use'), { status: 503, code: 'busy' })
       }
@@ -211,17 +227,20 @@ export function createPool({ api, settings, log }) {
         const now = Date.now()
         Object.assign(m, { phase: 'claiming', clientIp, expiresAt: now + settings.sessionMs })
         tick()
+        attempts++
         try {
-          await api.setMetadata(m.id, 'client_ip', clientIp)
-          await api.setMetadata(m.id, 'expires_at', new Date(m.expiresAt).toISOString())
+          await api.setMetadata(m.id, 'claim', writeClaim(m))
           if (wasSuspended) {
             await api.start(m.id)
             if (!(await reachState(m, 'started', RESUME_TIMEOUT_MS))) throw new Error('did not resume')
           }
           if (!(await healthy(m, RESUME_TIMEOUT_MS))) throw new Error('did not serve after resuming')
         } catch (err) {
-          log('claim_failed', { id: m.id, error: err.message })
+          log('claim_failed', { id: m.id, attempt: attempts, error: err.message })
           await destroy(m, 'claim failed')
+          if (attempts >= CLAIM_ATTEMPTS) {
+            throw Object.assign(new Error('could not start a session'), { status: 503, code: 'failed' })
+          }
           continue
         }
         m.phase = 'claimed'

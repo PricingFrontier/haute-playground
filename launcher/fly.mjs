@@ -8,12 +8,20 @@ export function machinesApi({ app, token }) {
   const authorization = token.startsWith('FlyV1 ') ? token : `Bearer ${token}`
 
   async function call(method, path, body) {
-    const res = await fetch(base + path, {
-      method,
-      headers: { authorization, ...(body && { 'content-type': 'application/json' }) },
-      body: body && JSON.stringify(body),
-      signal: AbortSignal.timeout(30_000),
-    })
+    let res
+    // Fly rate-limits each action (about one a second per machine or app). A 429
+    // means nothing was done, so even a create is safe to retry after a pause.
+    for (let wait = 500; ; wait *= 2) {
+      res = await fetch(base + path, {
+        method,
+        headers: { authorization, ...(body && { 'content-type': 'application/json' }) },
+        body: body && JSON.stringify(body),
+        signal: AbortSignal.timeout(30_000),
+      })
+      if (res.status !== 429 || wait > 8_000) break
+      await res.arrayBuffer()
+      await new Promise(resolve => setTimeout(resolve, wait))
+    }
     const text = await res.text()
     if (!res.ok) throw new Error(`Fly API ${method} ${path || '/'}: ${res.status} ${text.slice(0, 300)}`)
     try {
