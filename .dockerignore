@@ -1,7 +1,8 @@
 # Kept out of the session image: git history (with its LFS copies of the data),
-# local environments and caches, and the repo's own CI.
+# local environments and caches, and the repo's own CI and session launcher.
 .git
 .github
+launcher
 .venv
 .haute
 .haute_cache

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Launcher test</title>
+<style>
+  :root { color-scheme: dark }
+  body { margin: 0; height: 100vh; display: grid; grid-template-rows: auto 1fr; background: #0b1220; color: #e6e3e2; font: 14px system-ui, sans-serif }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 10px 16px }
+  button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid #3b475a; background: #131621; color: inherit; cursor: pointer }
+  button:disabled { opacity: .5; cursor: default }
+  iframe { width: 100%; height: 100%; border: 0; background: #131621 }
+</style>
+</head>
+<body>
+<!-- Does what playground.html will: start a session and open it in an iframe on a
+     page of the same site, so Haute's cookie and live sync can be checked end to end. -->
+<header>
+  <button id="start" type="button">Start Haute</button>
+  <button id="end" type="button" hidden>End session</button>
+  <span id="status" aria-live="polite"></span>
+</header>
+<iframe id="frame" title="Haute" allow="clipboard-read; clipboard-write"></iframe>
+<script>
+  const $ = id => document.getElementById(id)
+  let session = null
+  const seconds = ms => (ms / 1000).toFixed(1) + ' s'
+
+  $('start').onclick = async () => {
+    $('start').disabled = true
+    $('status').textContent = 'Starting…'
+    const started = performance.now()
+    const res = await fetch('/sessions', { method: 'POST' })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      $('status').textContent = 'Could not start: ' + (body.error ?? res.status)
+      $('start').disabled = false
+      return
+    }
+    session = body
+    const handed = performance.now()
+    $('frame').onload = () => {
+      $('status').textContent = 'Session handed over in ' + seconds(handed - started) + ', page loaded after ' +
+        seconds(performance.now() - started) + '. It ends at ' + new Date(session.expiresAt).toLocaleTimeString() + '.'
+    }
+    $('frame').src = session.url
+    $('end').hidden = false
+  }
+
+  $('end').onclick = async () => {
+    await fetch('/sessions/' + session.sid, { method: 'DELETE' })
+    $('frame').removeAttribute('src')
+    $('end').hidden = true
+    $('start').disabled = false
+    $('status').textContent = 'Session ended.'
+  }
+</script>
+</body>
+</html>

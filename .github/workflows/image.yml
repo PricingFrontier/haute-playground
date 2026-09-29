@@ -5,6 +5,7 @@ name: Session image
 on:
   push:
     branches: [main]
+    paths-ignore: ["launcher/**"]
   workflow_dispatch:
 
 permissions:
