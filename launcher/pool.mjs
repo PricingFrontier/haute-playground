@@ -124,7 +124,7 @@ export function createPool({ api, settings, log }) {
         region: settings.region,
         config: {
           image: settings.image,
-          env: { PUBLIC_ORIGIN: `https://${sid}.${settings.domain}` },
+          env: { ...settings.extraEnv, PUBLIC_ORIGIN: `https://${sid}.${settings.domain}` },
           guest: { cpu_kind: settings.cpuKind, cpus: settings.cpus, memory_mb: settings.memoryMb },
           restart: { policy: 'no' },
           auto_destroy: true,

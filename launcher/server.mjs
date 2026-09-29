@@ -32,6 +32,18 @@ const settings = {
   poolSuspended: whole('POOL_SUSPENDED'),
   maxSessions: whole('MAX_SESSIONS'),
   maxPerIp: whole('MAX_SESSIONS_PER_IP'),
+  // Extra variables for every new session machine, "NAME=value,NAME=value" (optional)
+  extraEnv: Object.fromEntries(
+    (process.env.SESSION_EXTRA_ENV ?? '')
+      .split(',')
+      .map(pair => pair.trim())
+      .filter(Boolean)
+      .map(pair => {
+        const at = pair.indexOf('=')
+        if (at < 1) throw new Error(`SESSION_EXTRA_ENV entries must be NAME=value, not "${pair}"`)
+        return [pair.slice(0, at), pair.slice(at + 1)]
+      }),
+  ),
 }
 const playgroundPage = required('PLAYGROUND_PAGE')
 const allowedOrigins = new Set([`https://${settings.domain}`, ...required('ALLOWED_ORIGINS').split(',').map(o => o.trim())])

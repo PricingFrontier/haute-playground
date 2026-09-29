@@ -40,6 +40,8 @@ check "Haute runs as haute" runs_as_haute "haute serve"
 check "Caddy runs as haute" runs_as_haute "caddy run"
 if [ -d /.fly ]; then
   refused "haute can't read Fly's in-machine files" as_haute ls /.fly
+  check "Haute can cap its workers' real memory (cgroup v2)" as_haute sh -c \
+    "cd /project && $py -c 'import sys; from haute._native_memory_limit import _linux_cgroup_v2_available as ok; sys.exit(0 if ok() else 1)'"
 fi
 
 exit $failed
