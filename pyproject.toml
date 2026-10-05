@@ -8,7 +8,7 @@ authors = [
 ]
 requires-python = ">=3.13,<3.14"
 dependencies = [
-    "haute>=0.5.2",
+    "haute>=0.6.0",
 ]
 
 [project.scripts]
